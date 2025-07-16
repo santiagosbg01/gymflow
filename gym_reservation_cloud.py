@@ -963,8 +963,15 @@ def main():
         time.sleep(60)  # Check every minute
 
 if __name__ == "__main__":
-    # For immediate testing, uncomment the line below
-    # run_cloud_reservation()
-    
-    # For cloud scheduling, run main()
-    main() 
+    # Check if we should run immediately (for GitHub Actions manual trigger)
+    import os
+    if os.getenv('GITHUB_ACTIONS') == 'true':
+        logger.info("Running in GitHub Actions - executing immediately")
+        run_cloud_reservation()
+    else:
+        # For immediate testing, uncomment the line below
+        # run_cloud_reservation()
+        
+        # For cloud scheduling, run main()
+        logger.info("Running in scheduler mode")
+        main() 
