@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  gym-reservation:
+    build: .
+    container_name: gym-reservation-cloud
+    environment:
+      - CONDOMISOFT_USERNAME=${CONDOMISOFT_USERNAME}
+      - CONDOMISOFT_PASSWORD=${CONDOMISOFT_PASSWORD}
+      - GMAIL_USER=${GMAIL_USER}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
+      - TZ=America/Mexico_City
+      - DISPLAY=:99
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    
+  # Optional: Add a health check service
+  health-check:
+    build: .
+    container_name: gym-reservation-health
+    command: python3 test_simple_cloud.py
+    environment:
+      - CONDOMISOFT_USERNAME=${CONDOMISOFT_USERNAME}
+      - CONDOMISOFT_PASSWORD=${CONDOMISOFT_PASSWORD}
+      - GMAIL_USER=${GMAIL_USER}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
+      - TZ=America/Mexico_City
+    depends_on:
+      - gym-reservation
+    profiles:
+      - test 

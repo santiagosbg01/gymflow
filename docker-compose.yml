@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  gym-reservation:
+    build: .
+    container_name: gym-reservation-system
+    environment:
+      - CONDOMISOFT_USERNAME=${CONDOMISOFT_USERNAME}
+      - CONDOMISOFT_PASSWORD=${CONDOMISOFT_PASSWORD}
+      - EMAIL_HOST=${EMAIL_HOST:-smtp.gmail.com}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - EMAIL_TO=${EMAIL_TO}
+      - TZ=${TZ:-America/Mexico_City}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M 
