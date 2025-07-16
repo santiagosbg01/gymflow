@@ -213,37 +213,80 @@ class GymReservationCloud:
             logger.info("Navigating to login page")
             self.driver.get(self.login_url)
             
-            # Wait for username field
-            username_field = self.wait.until(EC.presence_of_element_located((By.NAME, "user")))
-            logger.info("Found username field")
+            # Wait for page to load
+            time.sleep(3)
             
-            password_field = self.driver.find_element(By.NAME, "pass")
-            logger.info("Found password field")
+            # Check if we're already logged in by looking for logout link or user info
+            if self.driver.find_elements(By.XPATH, "//a[contains(text(), 'Salir') or contains(text(), 'Logout')]"):
+                logger.info("Already logged in")
+                return
+            
+            # Look for login form fields with fallback logic
+            username_field = None
+            password_field = None
+            
+            # Try to find username field - first try correct name, then fallback
+            username_elements = self.driver.find_elements(By.NAME, "usuario")
+            if not username_elements:
+                username_elements = self.driver.find_elements(By.NAME, "user")
+            if not username_elements:
+                username_elements = self.driver.find_elements(By.XPATH, "//input[@type='text' or @type='email']")
+            
+            if username_elements:
+                username_field = username_elements[0]
+                logger.info("Found username field")
+            else:
+                logger.error("No username field found")
+                raise Exception("Username field not found")
+            
+            # Try to find password field - first try correct name, then fallback
+            password_elements = self.driver.find_elements(By.NAME, "clave")
+            if not password_elements:
+                password_elements = self.driver.find_elements(By.NAME, "pass")
+            if not password_elements:
+                password_elements = self.driver.find_elements(By.XPATH, "//input[@type='password']")
+            
+            if password_elements:
+                password_field = password_elements[0]
+                logger.info("Found password field")
+            else:
+                logger.error("No password field found")
+                raise Exception("Password field not found")
             
             # Enter credentials
             logger.info("Entering credentials...")
             username_field.clear()
             username_field.send_keys(self.username)
-            
             password_field.clear()
             password_field.send_keys(self.password)
             
-            # Find and click login button
-            login_button = self.driver.find_element(By.XPATH, "//input[@type='submit' and @value='Entrar']")
-            login_button.click()
+            # Submit login form with multiple fallback options
+            submit_buttons = self.driver.find_elements(By.XPATH, "//input[@type='submit'] | //button[@type='submit'] | //button[contains(text(), 'Entrar')]")
+            if submit_buttons:
+                submit_buttons[0].click()
+                logger.info("Login form submitted")
+            else:
+                # Try pressing Enter on password field
+                password_field.send_keys("\n")
+                logger.info("Submitted login by pressing Enter")
             
-            logger.info("Login form submitted")
-            
-            # Wait for successful login
+            # Wait for login to process
             time.sleep(5)
             
-            # Check if login was successful
+            # Check for successful login (redirect or presence of logout link)
             current_url = self.driver.current_url
-            if "login.php" in current_url:
-                logger.error("Login failed - still on login page")
-                raise Exception("Login failed")
-            
-            logger.info("Login successful")
+            if current_url != self.login_url or self.driver.find_elements(By.XPATH, "//a[contains(text(), 'Salir') or contains(text(), 'Logout')]"):
+                logger.info("Login successful")
+            else:
+                logger.warning("Login may have failed - checking for error messages")
+                # Check for error messages
+                error_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'error') or contains(text(), 'incorrecto') or contains(text(), 'invalid')]")
+                if error_elements:
+                    logger.error(f"Login error: {error_elements[0].text}")
+                    raise Exception(f"Login failed: {error_elements[0].text}")
+                else:
+                    logger.warning("No clear error message found, but login may have failed")
+                    raise Exception("Login failed - unknown error")
             
         except Exception as e:
             logger.error(f"Login failed: {str(e)}")
@@ -252,6 +295,9 @@ class GymReservationCloud:
     def select_apartment(self):
         """Select the G-502 apartment"""
         try:
+            assert self.driver is not None, "Driver must be initialized"
+            assert self.wait is not None, "Wait must be initialized"
+            
             logger.info("Selecting apartment G-502")
             
             # Look for G-502 button
@@ -270,6 +316,8 @@ class GymReservationCloud:
     def navigate_to_reservation(self):
         """Navigate to the reservation page"""
         try:
+            assert self.driver is not None, "Driver must be initialized"
+            
             logger.info("Navigating to reservation page")
             self.driver.get(self.reservation_url)
             
@@ -305,6 +353,8 @@ class GymReservationCloud:
     def select_calendar_day(self):
         """Select the next occurrence of the same day of the week from the calendar"""
         try:
+            assert self.driver is not None, "Driver must be initialized"
+            
             target_date = self.get_target_date()
             target_day = target_date.day
             
@@ -372,6 +422,8 @@ class GymReservationCloud:
     def check_and_handle_advance_error(self):
         """Check for the '7 days in advance' error message and handle it"""
         try:
+            assert self.driver is not None, "Driver must be initialized"
+            
             # Check if we're on the apology page with the error message
             current_url = self.driver.current_url
             if "apology.php" in current_url and "m%C3%A1s%20de%207%20d%C3%ADas" in current_url:
