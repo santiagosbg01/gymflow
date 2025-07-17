@@ -47,7 +47,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files (use cloud version)
 COPY gym_reservation_cloud.py .
-COPY config.env .
 COPY setup.py .
 COPY run.sh .
 COPY README.md .
