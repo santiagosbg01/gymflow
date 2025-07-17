@@ -293,22 +293,60 @@ class GymReservationCloud:
             raise
 
     def select_apartment(self):
-        """Select the G-502 apartment"""
+        """Select the G-502 apartment from the dashboard"""
         try:
             assert self.driver is not None, "Driver must be initialized"
-            assert self.wait is not None, "Wait must be initialized"
             
             logger.info("Selecting apartment G-502")
             
-            # Look for G-502 button
-            g502_button = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'G-502')]")))
-            g502_button.click()
-            
-            logger.info("Successfully clicked G-502 apartment button")
-            
-            # Wait for apartment selection to process
+            # Wait for the condominium list to load
             time.sleep(3)
             
+            # Look for the G-502 button (it should be in the "Vivienda" column)
+            # The button text might have spaces like "G - 502"
+            g502_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'G') and contains(text(), '502')] | //a[contains(text(), 'G') and contains(text(), '502')]")
+            
+            if not g502_buttons:
+                # Try looking in the FLOW building row for G-502
+                g502_buttons = self.driver.find_elements(By.XPATH, "//tr[contains(., 'FLOW')]//button[contains(text(), 'G') and contains(text(), '502')] | //tr[contains(., 'FLOW')]//a[contains(text(), 'G') and contains(text(), '502')]")
+            
+            if not g502_buttons:
+                # Try looking for any element containing G and 502
+                g502_buttons = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'G') and contains(text(), '502')]")
+            
+            if g502_buttons:
+                # Make sure it's clickable
+                clickable_element = g502_buttons[0]
+                if clickable_element.tag_name not in ['button', 'a']:
+                    # Look for clickable parent or child
+                    parent_clickable = clickable_element.find_elements(By.XPATH, ".//button | .//a | ./ancestor::button | ./ancestor::a")
+                    if parent_clickable:
+                        clickable_element = parent_clickable[0]
+                
+                clickable_element.click()
+                logger.info("Successfully clicked G-502 apartment button")
+                
+                # Wait for the apartment selection to process
+                time.sleep(3)
+                
+            else:
+                logger.warning("G-502 button not found - checking available options")
+                # Log all table rows for debugging
+                rows = self.driver.find_elements(By.XPATH, "//tr")
+                logger.info(f"Found {len(rows)} table rows")
+                
+                for i, row in enumerate(rows[:10]):  # Show first 10 rows
+                    row_text = row.text.replace('\n', ' | ')
+                    logger.info(f"  Row {i}: {row_text}")
+                
+                # Look for any buttons in the table
+                all_buttons = self.driver.find_elements(By.XPATH, "//button | //a[contains(@class, 'btn')]")
+                logger.info(f"Found {len(all_buttons)} buttons:")
+                for i, btn in enumerate(all_buttons[:5]):
+                    logger.info(f"  Button {i}: {btn.text}")
+                
+                raise Exception("G-502 apartment button not found")
+                
         except Exception as e:
             logger.error(f"Failed to select apartment: {str(e)}")
             raise
