@@ -395,11 +395,53 @@ class GymReservationCloud:
             
             target_date = self.get_target_date()
             target_day = target_date.day
+            target_month = target_date.month
+            target_year = target_date.year
             
-            logger.info(f"Looking for day {target_day} in calendar")
+            # Get current month/year from system
+            current_date = datetime.now(pytz.timezone('America/Mexico_City'))
+            current_month = current_date.month
+            current_year = current_date.year
+            
+            logger.info(f"Looking for day {target_day} in {target_date.strftime('%B %Y')} (target: {target_month}/{target_year}, current: {current_month}/{current_year})")
             
             # Wait for calendar to load
             time.sleep(2)
+            
+            # Navigate to the correct month if needed
+            months_to_advance = 0
+            if target_year > current_year:
+                months_to_advance = (target_year - current_year) * 12 + (target_month - current_month)
+            elif target_year == current_year and target_month > current_month:
+                months_to_advance = target_month - current_month
+            
+            # Click the >> button to advance months if necessary
+            for i in range(months_to_advance):
+                try:
+                    next_month_button = self.driver.find_element(By.XPATH, "//a[contains(text(), '>>') or contains(@onclick, 'next') or contains(@title, 'next')]")
+                    next_month_button.click()
+                    logger.info(f"Advanced calendar to next month (step {i+1}/{months_to_advance})")
+                    time.sleep(1)
+                except Exception as e:
+                    logger.warning(f"Could not advance to next month (step {i+1}): {str(e)}")
+                    # Try alternative selectors for next month button
+                    try:
+                        # Try looking for >> symbol or similar navigation
+                        next_buttons = self.driver.find_elements(By.XPATH, "//a[contains(text(), '>') or contains(text(), 'siguiente') or contains(text(), 'next')]")
+                        if next_buttons:
+                            next_buttons[-1].click()  # Usually the >> button is the last one
+                            logger.info(f"Advanced calendar using alternative selector (step {i+1}/{months_to_advance})")
+                            time.sleep(1)
+                        else:
+                            logger.error(f"No next month button found for step {i+1}")
+                            break
+                    except Exception as e2:
+                        logger.error(f"Failed to find any next month button: {str(e2)}")
+                        break
+            
+            # Wait for calendar to update after navigation
+            if months_to_advance > 0:
+                time.sleep(2)
             
             # Look for available days (green highlighted days in the calendar)
             available_days = self.driver.find_elements(By.XPATH, "//td[contains(@style, 'background-color: #90EE90') or contains(@style, 'background-color: green') or contains(@class, 'available')]")
@@ -414,7 +456,7 @@ class GymReservationCloud:
             
             if available_days:
                 # Log available days for debugging
-                logger.info(f"Found {len(available_days)} available days")
+                logger.info(f"Found {len(available_days)} available days in the correct month")
                 for i, day in enumerate(available_days[:10]):  # Show first 10 days
                     logger.info(f"  Day {i}: {day.text}")
                 
@@ -427,7 +469,7 @@ class GymReservationCloud:
                 
                 if target_day_element:
                     target_day_element.click()
-                    logger.info(f"Selected calendar day: {target_day}")
+                    logger.info(f"Selected calendar day: {target_day} in {target_date.strftime('%B %Y')}")
                     
                     # Wait for the day selection to process
                     time.sleep(3)
@@ -438,10 +480,10 @@ class GymReservationCloud:
                     
                     return True
                 else:
-                    logger.warning(f"Target day {target_day} not found in available days")
+                    logger.warning(f"Target day {target_day} not found in available days for {target_date.strftime('%B %Y')}")
                     # Fall back to selecting the first available day
                     available_days[0].click()
-                    logger.info(f"Selected fallback day: {available_days[0].text}")
+                    logger.info(f"Selected fallback day: {available_days[0].text} in {target_date.strftime('%B %Y')}")
                     time.sleep(3)
                     
                     # Check if we got the "7 days in advance" error
@@ -450,7 +492,7 @@ class GymReservationCloud:
                     
                     return True
             else:
-                logger.warning("No available days found in calendar")
+                logger.warning(f"No available days found in calendar for {target_date.strftime('%B %Y')}")
                 return False
             
         except Exception as e:
@@ -511,7 +553,7 @@ class GymReservationCloud:
         """Select calendar day with more precise date calculation to avoid 7-day limit"""
         try:
             # Calculate target date more precisely - exactly 7 days from now or less
-            now = datetime.now()
+            now = datetime.now(pytz.timezone('America/Mexico_City'))
             current_weekday = now.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
             
             # Calculate days until next occurrence of the same weekday, but cap at 7 days
@@ -537,11 +579,51 @@ class GymReservationCloud:
             
             target_date = now + timedelta(days=days_ahead)
             target_day = target_date.day
+            target_month = target_date.month
+            target_year = target_date.year
             
-            logger.info(f"Retry: Looking for day {target_day} in calendar (calculated with {days_ahead} days ahead)")
+            # Get current month/year
+            current_month = now.month
+            current_year = now.year
+            
+            logger.info(f"Retry: Looking for day {target_day} in {target_date.strftime('%B %Y')} (calculated with {days_ahead} days ahead)")
             
             # Wait for calendar to load
             time.sleep(2)
+            
+            # Navigate to the correct month if needed
+            months_to_advance = 0
+            if target_year > current_year:
+                months_to_advance = (target_year - current_year) * 12 + (target_month - current_month)
+            elif target_year == current_year and target_month > current_month:
+                months_to_advance = target_month - current_month
+            
+            # Click the >> button to advance months if necessary
+            for i in range(months_to_advance):
+                try:
+                    next_month_button = self.driver.find_element(By.XPATH, "//a[contains(text(), '>>') or contains(@onclick, 'next') or contains(@title, 'next')]")
+                    next_month_button.click()
+                    logger.info(f"Retry: Advanced calendar to next month (step {i+1}/{months_to_advance})")
+                    time.sleep(1)
+                except Exception as e:
+                    logger.warning(f"Retry: Could not advance to next month (step {i+1}): {str(e)}")
+                    # Try alternative selectors for next month button
+                    try:
+                        next_buttons = self.driver.find_elements(By.XPATH, "//a[contains(text(), '>') or contains(text(), 'siguiente') or contains(text(), 'next')]")
+                        if next_buttons:
+                            next_buttons[-1].click()  # Usually the >> button is the last one
+                            logger.info(f"Retry: Advanced calendar using alternative selector (step {i+1}/{months_to_advance})")
+                            time.sleep(1)
+                        else:
+                            logger.error(f"Retry: No next month button found for step {i+1}")
+                            break
+                    except Exception as e2:
+                        logger.error(f"Retry: Failed to find any next month button: {str(e2)}")
+                        break
+            
+            # Wait for calendar to update after navigation
+            if months_to_advance > 0:
+                time.sleep(2)
             
             # Look for available days
             available_days = self.driver.find_elements(By.XPATH, "//td[contains(@style, 'background-color: #90EE90') or contains(@style, 'background-color: green') or contains(@class, 'available')]")
@@ -553,6 +635,11 @@ class GymReservationCloud:
                 available_days = self.driver.find_elements(By.XPATH, "//td[text() and @onclick and not(contains(@class, 'disabled'))]")
             
             if available_days:
+                # Log available days for debugging
+                logger.info(f"Retry: Found {len(available_days)} available days in the correct month")
+                for i, day in enumerate(available_days[:10]):  # Show first 10 days
+                    logger.info(f"  Retry Day {i}: {day.text}")
+                
                 # Look for the specific target day
                 target_day_element = None
                 for day_element in available_days:
@@ -562,17 +649,17 @@ class GymReservationCloud:
                 
                 if target_day_element:
                     target_day_element.click()
-                    logger.info(f"Retry: Selected calendar day: {target_day}")
+                    logger.info(f"Retry: Selected calendar day: {target_day} in {target_date.strftime('%B %Y')}")
                     time.sleep(3)
                     return True
                 else:
-                    logger.warning(f"Retry: Target day {target_day} not found, selecting first available day")
+                    logger.warning(f"Retry: Target day {target_day} not found in {target_date.strftime('%B %Y')}, selecting first available day")
                     available_days[0].click()
-                    logger.info(f"Retry: Selected fallback day: {available_days[0].text}")
+                    logger.info(f"Retry: Selected fallback day: {available_days[0].text} in {target_date.strftime('%B %Y')}")
                     time.sleep(3)
                     return True
             else:
-                logger.warning("Retry: No available days found in calendar")
+                logger.warning(f"Retry: No available days found in calendar for {target_date.strftime('%B %Y')}")
                 return False
                 
         except Exception as e:
