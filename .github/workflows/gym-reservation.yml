@@ -21,33 +21,46 @@ jobs:
       with:
         python-version: '3.9'
     
-    - name: Install system dependencies
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install Chrome and dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y wget gnupg unzip curl xvfb firefox
+        # Install required system packages
+        sudo apt-get update -qq
+        sudo apt-get install -y xvfb --no-install-recommends
         
-        # Install Chrome
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-        sudo apt-get update
-        sudo apt-get install -y google-chrome-stable
+        # Install Chrome using snap (faster than manual installation)
+        sudo snap install chromium
+        
+        # Or alternatively, use the pre-installed Chrome if available
+        if ! command -v google-chrome &> /dev/null && ! command -v chromium &> /dev/null; then
+          # Fallback to manual installation if snap fails
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -qq
+          sudo apt-get install -y google-chrome-stable --no-install-recommends
+        fi
         
         # Install ChromeDriver
         LATEST_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE")
-        wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/$LATEST_VERSION/chromedriver_linux64.zip"
-        sudo unzip /tmp/chromedriver.zip -d /usr/local/bin/
+        wget -q -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/$LATEST_VERSION/chromedriver_linux64.zip"
+        sudo unzip -q /tmp/chromedriver.zip -d /usr/local/bin/
         sudo chmod +x /usr/local/bin/chromedriver
+        rm /tmp/chromedriver.zip
         
-        # Install GeckoDriver (Fixed version to avoid API parsing issues)
-        GECKO_VERSION="0.35.0"
-        wget -O /tmp/geckodriver.tar.gz "https://github.com/mozilla/geckodriver/releases/download/v$GECKO_VERSION/geckodriver-v$GECKO_VERSION-linux64.tar.gz"
-        sudo tar -xzf /tmp/geckodriver.tar.gz -C /usr/local/bin/
-        sudo chmod +x /usr/local/bin/geckodriver
+        # Verify installation
+        chromedriver --version
     
     - name: Install Python dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        python -m pip install --upgrade pip --quiet
+        pip install -r requirements.txt --quiet
     
     - name: Set up virtual display
       run: |
@@ -55,6 +68,7 @@ jobs:
         Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
     
     - name: Run gym reservation
+      timeout-minutes: 10
       env:
         CONDOMISOFT_USERNAME: ${{ secrets.CONDOMISOFT_USERNAME }}
         CONDOMISOFT_PASSWORD: ${{ secrets.CONDOMISOFT_PASSWORD }}

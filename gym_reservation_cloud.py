@@ -290,6 +290,12 @@ class GymReservationCloud:
             
         except Exception as e:
             logger.error(f"Login failed: {str(e)}")
+            # Let's take a screenshot for debugging
+            try:
+                self.driver.save_screenshot('/tmp/selenium_login_error.png')
+                logger.info("Screenshot saved to /tmp/selenium_login_error.png")
+            except:
+                pass
             raise
 
     def select_apartment(self):
@@ -352,39 +358,39 @@ class GymReservationCloud:
             raise
 
     def navigate_to_reservation(self):
-        """Navigate to the reservation page"""
+        """Navigate to gym reservation page"""
         try:
-            assert self.driver is not None, "Driver must be initialized"
+            # Navigate to the gym reservation page
+            reservation_url = "https://www.condomisoft.com/system/detalle_recursos.php?id_recurso=1780&nombre_recurso=GIMNASIO%20CUARTO%20PILATES%20Y%20%20SAL%C3%93N%20AEROBI"
             
-            logger.info("Navigating to reservation page")
-            self.driver.get(self.reservation_url)
+            logger.info(f"Navigating to reservation page: {reservation_url}")
+            self.driver.get(reservation_url)
             
-            # Wait for page to load
-            time.sleep(2)
+            # Wait for page to load with explicit wait instead of sleep
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
             
-            logger.info("Reservation page loaded")
+            logger.info("Successfully navigated to reservation page")
             
         except Exception as e:
             logger.error(f"Failed to navigate to reservation page: {str(e)}")
             raise
 
     def get_target_date(self):
-        """Calculate the next occurrence of the same day of the week"""
-        # Use Mexico City timezone
+        """Calculate the target reservation date (next week, same day)"""
+        # Use Mexico City timezone for accurate date calculation
         mexico_tz = pytz.timezone('America/Mexico_City')
         now = datetime.now(mexico_tz)
-        current_weekday = now.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
         
-        # Map weekdays to names for logging
-        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        
-        # Calculate days until next occurrence of the same weekday
-        days_ahead = 7  # Always go to next week
+        # Calculate target date (next week, same day of week)
+        days_ahead = 7
         target_date = now + timedelta(days=days_ahead)
         
-        logger.info(f"Current day (Mexico City): {weekday_names[current_weekday]}")
+        # Log the target date for debugging
+        logger.info(f"Current day (Mexico City): {now.strftime('%A')}")
         logger.info(f"Current time (Mexico City): {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        logger.info(f"Target date: {target_date.strftime('%Y-%m-%d (%A)')}")
+        logger.info(f"Target date: {target_date.strftime('%Y-%m-%d')} ({target_date.strftime('%A')})")
         
         return target_date
 
@@ -406,7 +412,7 @@ class GymReservationCloud:
             logger.info(f"Looking for day {target_day} in {target_date.strftime('%B %Y')} (target: {target_month}/{target_year}, current: {current_month}/{current_year})")
             
             # Wait for calendar to load
-            time.sleep(2)
+            time.sleep(1)  # Reduced from 2
             
             # Navigate to the correct month if needed
             months_to_advance = 0
@@ -421,7 +427,7 @@ class GymReservationCloud:
                     next_month_button = self.driver.find_element(By.XPATH, "//a[contains(text(), '>>') or contains(@onclick, 'next') or contains(@title, 'next')]")
                     next_month_button.click()
                     logger.info(f"Advanced calendar to next month (step {i+1}/{months_to_advance})")
-                    time.sleep(1)
+                    time.sleep(0.5)  # Reduced from 1
                 except Exception as e:
                     logger.warning(f"Could not advance to next month (step {i+1}): {str(e)}")
                     # Try alternative selectors for next month button
@@ -431,7 +437,7 @@ class GymReservationCloud:
                         if next_buttons:
                             next_buttons[-1].click()  # Usually the >> button is the last one
                             logger.info(f"Advanced calendar using alternative selector (step {i+1}/{months_to_advance})")
-                            time.sleep(1)
+                            time.sleep(0.5)  # Reduced from 1
                         else:
                             logger.error(f"No next month button found for step {i+1}")
                             break
@@ -441,7 +447,7 @@ class GymReservationCloud:
             
             # Wait for calendar to update after navigation
             if months_to_advance > 0:
-                time.sleep(2)
+                time.sleep(1)  # Reduced from 2
             
             # Look for available days (green highlighted days in the calendar)
             available_days = self.driver.find_elements(By.XPATH, "//td[contains(@style, 'background-color: #90EE90') or contains(@style, 'background-color: green') or contains(@class, 'available')]")
@@ -472,7 +478,7 @@ class GymReservationCloud:
                     logger.info(f"Selected calendar day: {target_day} in {target_date.strftime('%B %Y')}")
                     
                     # Wait for the day selection to process
-                    time.sleep(3)
+                    time.sleep(1)  # Reduced from 3
                     
                     # Check if we got the "7 days in advance" error
                     if self.check_and_handle_advance_error():
@@ -484,7 +490,7 @@ class GymReservationCloud:
                     # Fall back to selecting the first available day
                     available_days[0].click()
                     logger.info(f"Selected fallback day: {available_days[0].text} in {target_date.strftime('%B %Y')}")
-                    time.sleep(3)
+                    time.sleep(1)  # Reduced from 3
                     
                     # Check if we got the "7 days in advance" error
                     if self.check_and_handle_advance_error():
@@ -589,7 +595,7 @@ class GymReservationCloud:
             logger.info(f"Retry: Looking for day {target_day} in {target_date.strftime('%B %Y')} (calculated with {days_ahead} days ahead)")
             
             # Wait for calendar to load
-            time.sleep(2)
+            time.sleep(1)  # Reduced from 2
             
             # Navigate to the correct month if needed
             months_to_advance = 0
@@ -604,7 +610,7 @@ class GymReservationCloud:
                     next_month_button = self.driver.find_element(By.XPATH, "//a[contains(text(), '>>') or contains(@onclick, 'next') or contains(@title, 'next')]")
                     next_month_button.click()
                     logger.info(f"Retry: Advanced calendar to next month (step {i+1}/{months_to_advance})")
-                    time.sleep(1)
+                    time.sleep(0.5)  # Reduced from 1
                 except Exception as e:
                     logger.warning(f"Retry: Could not advance to next month (step {i+1}): {str(e)}")
                     # Try alternative selectors for next month button
@@ -613,7 +619,7 @@ class GymReservationCloud:
                         if next_buttons:
                             next_buttons[-1].click()  # Usually the >> button is the last one
                             logger.info(f"Retry: Advanced calendar using alternative selector (step {i+1}/{months_to_advance})")
-                            time.sleep(1)
+                            time.sleep(0.5)  # Reduced from 1
                         else:
                             logger.error(f"Retry: No next month button found for step {i+1}")
                             break
@@ -623,7 +629,7 @@ class GymReservationCloud:
             
             # Wait for calendar to update after navigation
             if months_to_advance > 0:
-                time.sleep(2)
+                time.sleep(1)  # Reduced from 2
             
             # Look for available days
             available_days = self.driver.find_elements(By.XPATH, "//td[contains(@style, 'background-color: #90EE90') or contains(@style, 'background-color: green') or contains(@class, 'available')]")
@@ -650,13 +656,13 @@ class GymReservationCloud:
                 if target_day_element:
                     target_day_element.click()
                     logger.info(f"Retry: Selected calendar day: {target_day} in {target_date.strftime('%B %Y')}")
-                    time.sleep(3)
+                    time.sleep(1)  # Reduced from 3
                     return True
                 else:
                     logger.warning(f"Retry: Target day {target_day} not found in {target_date.strftime('%B %Y')}, selecting first available day")
                     available_days[0].click()
                     logger.info(f"Retry: Selected fallback day: {available_days[0].text} in {target_date.strftime('%B %Y')}")
-                    time.sleep(3)
+                    time.sleep(1)  # Reduced from 3
                     return True
             else:
                 logger.warning(f"Retry: No available days found in calendar for {target_date.strftime('%B %Y')}")
@@ -690,11 +696,11 @@ class GymReservationCloud:
             if time_buttons:
                 # Click the first available button
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", time_buttons[0])
-                time.sleep(1)
+                time.sleep(0.5)  # Reduced from 1
                 time_buttons[0].click()
                 
                 # Wait for confirmation or next step
-                time.sleep(3)
+                time.sleep(1)  # Reduced from 3
                 
                 # Check if we got the "7 days in advance" error after clicking
                 if not self.check_and_handle_advance_error():
@@ -705,14 +711,14 @@ class GymReservationCloud:
                 if confirm_buttons:
                     confirm_buttons[0].click()
                     logger.info(f"Clicked confirmation button for {time_slot} slot")
-                    time.sleep(3)
+                    time.sleep(1)  # Reduced from 3
                     
                     # Check if we got the "7 days in advance" error after confirmation
                     if not self.check_and_handle_advance_error():
                         return False
                 else:
                     logger.info(f"Reservation for {time_slot} initiated (no confirmation button found)")
-                    time.sleep(2)
+                    time.sleep(1)  # Reduced from 2
                     
                     # Check if we got the "7 days in advance" error
                     if not self.check_and_handle_advance_error():
@@ -735,7 +741,7 @@ class GymReservationCloud:
             
             # Refresh the page to get the latest status
             self.driver.refresh()
-            time.sleep(3)
+            time.sleep(1)  # Reduced from 3
             
             # Check if the time slot shows "Confirmado para G-502"
             confirmed_elements = self.driver.find_elements(By.XPATH, f"//tr[contains(., '{time_slot}')]//td[contains(text(), 'Confirmado para G-502')]")
@@ -830,7 +836,7 @@ class GymReservationCloud:
                     self.reservation_results[time_slot]["message"] = f"Exception: {str(e)}"
                 
                 # Brief pause between reservations
-                time.sleep(2)
+                time.sleep(1)  # Reduced from 2
             
             logger.info("Reservation process completed for both time slots")
             
