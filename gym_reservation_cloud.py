@@ -51,10 +51,14 @@ class GymReservationCloud:
         self.login_url = "https://www.condomisoft.com/system/login.php?sin_apps=true&plataforma="
         self.reservation_url = "https://www.condomisoft.com/system/detalle_recursos.php?id_recurso=1780&nombre_recurso=GIMNASIO%20CUARTO%20PILATES%20Y%20%20SAL%C3%93N%20AEROBI"
         
-        # Reservation status tracking for multiple time slots
+        # Time slots to try - early morning only
+        self.time_slots = ["07:30-08:00", "08:00-08:30", "07:00-07:30"]
+        
+        # Results tracking
         self.reservation_results = {
-            "07:30-08:00": {"success": False, "message": "Not attempted"},
-            "08:00-08:30": {"success": False, "message": "Not attempted"}
+            "07:30-08:00": {"success": False, "message": ""},
+            "08:00-08:30": {"success": False, "message": ""},
+            "07:00-07:30": {"success": False, "message": ""}
         }
         
         if not self.username or not self.password:
@@ -378,19 +382,21 @@ class GymReservationCloud:
             raise
 
     def get_target_date(self):
-        """Calculate the target reservation date (next week, same day)"""
+        """Calculate the target reservation date (next occurrence of same weekday)"""
         # Use Mexico City timezone for accurate date calculation
         mexico_tz = pytz.timezone('America/Mexico_City')
         now = datetime.now(mexico_tz)
+        current_weekday = now.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
         
-        # Calculate target date (next week, same day of week)
+        # Calculate target date - next occurrence of the same weekday
+        # Always go to next week (7 days ahead) to get the same day of the week
         days_ahead = 7
         target_date = now + timedelta(days=days_ahead)
         
         # Log the target date for debugging
-        logger.info(f"Current day (Mexico City): {now.strftime('%A')}")
+        logger.info(f"Current day (Mexico City): {now.strftime('%A')} (weekday {current_weekday})")
         logger.info(f"Current time (Mexico City): {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        logger.info(f"Target date: {target_date.strftime('%Y-%m-%d')} ({target_date.strftime('%A')})")
+        logger.info(f"Target date: {target_date.strftime('%Y-%m-%d')} ({target_date.strftime('%A')}) - {days_ahead} days ahead")
         
         return target_date
 
@@ -556,14 +562,14 @@ class GymReservationCloud:
             return False
 
     def select_calendar_day_with_retry(self):
-        """Select calendar day with more precise date calculation to avoid 7-day limit"""
+        """Select calendar day with precise date calculation for next occurrence of same weekday"""
         try:
-            # Calculate target date more precisely - exactly 7 days from now or less
+            # Calculate target date - next occurrence of the same weekday (7 days ahead)
             now = datetime.now(pytz.timezone('America/Mexico_City'))
             current_weekday = now.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
             
-            # Calculate days until next occurrence of the same weekday, but cap at 7 days
-            days_ahead = 7
+            # Calculate days until next occurrence of the same weekday
+            days_ahead = 7  # Always 7 days ahead for same weekday
             if current_weekday == 0:  # Monday
                 days_ahead = 7  # Next Monday
             elif current_weekday == 2:  # Wednesday  
@@ -580,7 +586,7 @@ class GymReservationCloud:
                     days_ahead = 1
                 elif current_weekday == 5:  # Saturday -> Monday
                     days_ahead = 2
-                else:  # Default to 7 days
+                else:  # Default to 7 days for same weekday
                     days_ahead = 7
             
             target_date = now + timedelta(days=days_ahead)
@@ -592,7 +598,7 @@ class GymReservationCloud:
             current_month = now.month
             current_year = now.year
             
-            logger.info(f"Retry: Looking for day {target_day} in {target_date.strftime('%B %Y')} (calculated with {days_ahead} days ahead)")
+            logger.info(f"Retry: Looking for day {target_day} in {target_date.strftime('%B %Y')} (calculated with {days_ahead} days ahead for next {target_date.strftime('%A')})")
             
             # Wait for calendar to load
             time.sleep(1)  # Reduced from 2
@@ -803,11 +809,8 @@ class GymReservationCloud:
                 logger.warning("Failed to select target day from calendar")
                 return
             
-            # Define both time slots to reserve
-            time_slots = ["07:30-08:00", "08:00-08:30"]
-            
-            # Attempt to reserve both time slots
-            for time_slot in time_slots:
+            # Try each time slot until we get one successful reservation
+            for time_slot in self.time_slots:
                 logger.info(f"Attempting to reserve {time_slot}")
                 
                 try:
@@ -821,6 +824,15 @@ class GymReservationCloud:
                             logger.info(f"✅ {time_slot} reservation validated successfully: {validation_message}")
                             self.reservation_results[time_slot]["success"] = True
                             self.reservation_results[time_slot]["message"] = validation_message
+                            
+                            # Success! Mark remaining slots as not attempted and break
+                            remaining_slots = self.time_slots[self.time_slots.index(time_slot) + 1:]
+                            for remaining_slot in remaining_slots:
+                                if remaining_slot in self.reservation_results:
+                                    self.reservation_results[remaining_slot]["message"] = "Not attempted - earlier slot succeeded"
+                            
+                            logger.info(f"✅ Successfully reserved {time_slot}, stopping attempts")
+                            return  # Exit the function early on success
                         else:
                             logger.error(f"❌ {time_slot} reservation validation failed: {validation_message}")
                             self.reservation_results[time_slot]["success"] = False
@@ -838,12 +850,12 @@ class GymReservationCloud:
                 # Brief pause between reservations
                 time.sleep(1)  # Reduced from 2
             
-            logger.info("Reservation process completed for both time slots")
+            logger.info(f"Reservation process completed for all {len(self.time_slots)} early morning time slots")
             
             # Check if at least one reservation was successful
             any_success = any(result["success"] for result in self.reservation_results.values())
             if not any_success:
-                raise Exception("Both reservations failed")
+                raise Exception(f"All {len(self.time_slots)} early morning reservations failed - no available slots found")
             
         except Exception as e:
             logger.error(f"Reservation process failed: {str(e)}")
@@ -934,19 +946,21 @@ def run_cloud_reservation():
         # Determine email type based on results
         if reservation_results:
             successful_slots = [slot for slot, result in reservation_results.items() if result["success"]]
-            failed_slots = [slot for slot, result in reservation_results.items() if not result["success"]]
-            all_success = len(successful_slots) == 2
-            partial_success = len(successful_slots) == 1
+            failed_slots = [slot for slot, result in reservation_results.items() if not result["success"] and result["message"] != "Not attempted - earlier slot succeeded"]
+            attempted_slots = [slot for slot, result in reservation_results.items() if result["message"] not in ["", "Not attempted - earlier slot succeeded"]]
+            all_success = len(successful_slots) >= 1  # Success if we got at least one slot
+            partial_success = False  # We only try until we get one success
             no_success = len(successful_slots) == 0
         else:
             successful_slots = []
-            failed_slots = ["07:30-08:00", "08:00-08:30"] 
+            failed_slots = ["07:30-08:00", "08:00-08:30", "07:00-07:30"]
+            attempted_slots = failed_slots
             all_success = False
             partial_success = False
             no_success = True
         
         if all_success:
-            subject = "✅ Gym Reservation - Both Slots Reserved! (Cloud)"
+            subject = f"✅ Gym Reservation Success - {successful_slots[0]} Reserved! (Cloud)"
             
             body = f"""
             <html>
@@ -1051,10 +1065,10 @@ def run_cloud_reservation():
             </html>
             """
         else:
-            subject = "❌ Gym Reservation Failed - Both Slots (Cloud)"
+            subject = f"❌ Gym Reservation Failed - All {len(attempted_slots) if 'attempted_slots' in locals() else 'Available'} Early Morning Slots (Cloud)"
             
             # Use reservation_results if available, otherwise use exception message
-            failure_reason = error_message if error_message else "Both time slots failed"
+            failure_reason = error_message if error_message else f"All {len(attempted_slots) if 'attempted_slots' in locals() else 'available'} early morning time slots failed - no slots available"
             
             body = f"""
             <html>
@@ -1064,7 +1078,7 @@ def run_cloud_reservation():
                 <p><strong>Attempted Reservation:</strong></p>
                 <ul>
                     <li><strong>Target Date:</strong> {target_date if target_date else 'Unable to determine'}</li>
-                    <li><strong>Time Slots:</strong> 07:30-08:00 and 08:00-08:30</li>
+                    <li><strong>Time Slots Attempted:</strong> {", ".join(attempted_slots)}</li>
                     <li><strong>Location:</strong> Gym - G-502</li>
                     <li><strong>Attempt Time:</strong> {start_time.strftime('%Y-%m-%d %H:%M:%S')}</li>
                     <li><strong>Duration:</strong> {duration.total_seconds():.1f} seconds</li>
@@ -1079,18 +1093,14 @@ def run_cloud_reservation():
                     <tr style="background-color: #f2f2f2;">
                         <th style="padding: 8px; text-align: left;">Time Slot</th>
                         <th style="padding: 8px; text-align: left;">Status</th>
-                        <th style="padding: 8px; text-align: left;">Failure Reason</th>
+                        <th style="padding: 8px; text-align: left;">Result</th>
                     </tr>
+                    {"".join([f'''
                     <tr>
-                        <td style="padding: 8px;">07:30 - 08:00</td>
+                        <td style="padding: 8px;">{slot}</td>
                         <td style="padding: 8px;"><span style="color: red;">❌ FAILED</span></td>
-                        <td style="padding: 8px;">{reservation_results["07:30-08:00"]["message"] if reservation_results else "Unknown error"}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 8px;">08:00 - 08:30</td>
-                        <td style="padding: 8px;"><span style="color: red;">❌ FAILED</span></td>
-                        <td style="padding: 8px;">{reservation_results["08:00-08:30"]["message"] if reservation_results else "Unknown error"}</td>
-                    </tr>
+                        <td style="padding: 8px;">{reservation_results[slot]["message"] if reservation_results and slot in reservation_results else "No available slots found"}</td>
+                    </tr>''' for slot in attempted_slots])}
                 </table>
                 
                 <p><strong>Overall Failure Reason:</strong></p>
@@ -1098,10 +1108,11 @@ def run_cloud_reservation():
                 
                 <p><strong>Possible causes:</strong></p>
                 <ul>
-                    <li>Time slots were already reserved by another user</li>
-                    <li>System did not confirm the reservations properly</li>
-                    <li>Network or website issues during reservation</li>
-                    <li>Time slots show "Disponible" instead of "Confirmado para G-502"</li>
+                    <li><strong>Most likely:</strong> All attempted time slots were already reserved by other users</li>
+                    <li>Gym availability calendar had no open slots for the target date</li>
+                    <li>System couldn't find available buttons for any of the time slots</li>
+                    <li>Network or website issues during reservation attempt</li>
+                    <li>Booking window restrictions (some gyms limit advance booking days)</li>
                 </ul>
                 
                 <p><strong>Manual Reservation Link:</strong></p>
