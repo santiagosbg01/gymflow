@@ -51,14 +51,13 @@ class GymReservationCloud:
         self.login_url = "https://www.condomisoft.com/system/login.php?sin_apps=true&plataforma="
         self.reservation_url = "https://www.condomisoft.com/system/detalle_recursos.php?id_recurso=1780&nombre_recurso=GIMNASIO%20CUARTO%20PILATES%20Y%20%20SAL%C3%93N%20AEROBI"
         
-        # Time slots to try - early morning only
-        self.time_slots = ["07:30-08:00", "08:00-08:30", "07:00-07:30"]
+        # Time slots to try - both main early morning slots
+        self.time_slots = ["07:30-08:00", "08:00-08:30"]
         
         # Results tracking
         self.reservation_results = {
             "07:30-08:00": {"success": False, "message": ""},
-            "08:00-08:30": {"success": False, "message": ""},
-            "07:00-07:30": {"success": False, "message": ""}
+            "08:00-08:30": {"success": False, "message": ""}
         }
         
         if not self.username or not self.password:
@@ -824,15 +823,6 @@ class GymReservationCloud:
                             logger.info(f"✅ {time_slot} reservation validated successfully: {validation_message}")
                             self.reservation_results[time_slot]["success"] = True
                             self.reservation_results[time_slot]["message"] = validation_message
-                            
-                            # Success! Mark remaining slots as not attempted and break
-                            remaining_slots = self.time_slots[self.time_slots.index(time_slot) + 1:]
-                            for remaining_slot in remaining_slots:
-                                if remaining_slot in self.reservation_results:
-                                    self.reservation_results[remaining_slot]["message"] = "Not attempted - earlier slot succeeded"
-                            
-                            logger.info(f"✅ Successfully reserved {time_slot}, stopping attempts")
-                            return  # Exit the function early on success
                         else:
                             logger.error(f"❌ {time_slot} reservation validation failed: {validation_message}")
                             self.reservation_results[time_slot]["success"] = False
@@ -850,12 +840,19 @@ class GymReservationCloud:
                 # Brief pause between reservations
                 time.sleep(1)  # Reduced from 2
             
-            logger.info(f"Reservation process completed for all {len(self.time_slots)} early morning time slots")
+            logger.info(f"Reservation process completed for both early morning time slots")
+            
+            # Log results for both slots
+            successful_slots = [slot for slot, result in self.reservation_results.items() if result["success"]]
+            failed_slots = [slot for slot, result in self.reservation_results.items() if not result["success"]]
+            
+            logger.info(f"✅ Successful reservations: {successful_slots if successful_slots else 'None'}")
+            logger.info(f"❌ Failed reservations: {failed_slots if failed_slots else 'None'}")
             
             # Check if at least one reservation was successful
             any_success = any(result["success"] for result in self.reservation_results.values())
             if not any_success:
-                raise Exception(f"All {len(self.time_slots)} early morning reservations failed - no available slots found")
+                raise Exception(f"Both early morning reservations failed - no available slots found")
             
         except Exception as e:
             logger.error(f"Reservation process failed: {str(e)}")
@@ -948,19 +945,19 @@ def run_cloud_reservation():
             successful_slots = [slot for slot, result in reservation_results.items() if result["success"]]
             failed_slots = [slot for slot, result in reservation_results.items() if not result["success"] and result["message"] != "Not attempted - earlier slot succeeded"]
             attempted_slots = [slot for slot, result in reservation_results.items() if result["message"] not in ["", "Not attempted - earlier slot succeeded"]]
-            all_success = len(successful_slots) >= 1  # Success if we got at least one slot
-            partial_success = False  # We only try until we get one success
+            all_success = len(successful_slots) == 2  # Success if we got both slots
+            partial_success = len(successful_slots) == 1  # Partial success if we got one slot
             no_success = len(successful_slots) == 0
         else:
             successful_slots = []
-            failed_slots = ["07:30-08:00", "08:00-08:30", "07:00-07:30"]
+            failed_slots = ["07:30-08:00", "08:00-08:30"]
             attempted_slots = failed_slots
             all_success = False
             partial_success = False
             no_success = True
         
         if all_success:
-            subject = f"✅ Gym Reservation Success - {successful_slots[0]} Reserved! (Cloud)"
+            subject = f"✅ Gym Reservation Success - Both Slots Reserved! (Cloud)"
             
             body = f"""
             <html>
@@ -1001,7 +998,7 @@ def run_cloud_reservation():
                     </tr>
                 </table>
                 
-                <p><strong>Overall Status:</strong> <span style="color: green;">✅ Both slots reserved successfully!</span></p>
+                <p><strong>Overall Status:</strong> <span style="color: green;">✅ Both time slots reserved successfully!</span></p>
                 
                 <hr>
                 <p><small>This is an automated message from your Cloud Gym Reservation System.</small></p>
@@ -1050,7 +1047,7 @@ def run_cloud_reservation():
                     </tr>
                 </table>
                 
-                <p><strong>Overall Status:</strong> <span style="color: orange;">⚠️ One slot reserved, one failed</span></p>
+                <p><strong>Overall Status:</strong> <span style="color: orange;">⚠️ Partial success - {len(successful_slots)}/2 slots reserved</span></p>
                 
                 <p><strong>Manual Reservation Link:</strong></p>
                 <p>You can try to manually reserve the failed slot by clicking the link below:</p>
