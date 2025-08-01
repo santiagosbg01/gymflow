@@ -504,11 +504,16 @@ class GymReservationCloud:
                 for i, day in enumerate(available_days[:10]):  # Show first 10 days
                     logger.info(f"  Day {i}: {day.text}")
                 
-                # Look for the specific target day
+                # Look for the specific target day (try both single digit and zero-padded)
                 target_day_element = None
+                target_day_str = str(target_day)
+                target_day_padded = f"{target_day:02d}"  # Zero-padded (e.g., "08")
+                
                 for day_element in available_days:
-                    if day_element.text.strip() == str(target_day):
+                    day_text = day_element.text.strip()
+                    if day_text == target_day_str or day_text == target_day_padded:
                         target_day_element = day_element
+                        logger.info(f"Found target day: '{day_text}' matches target {target_day}")
                         break
                 
                 if target_day_element:
@@ -684,11 +689,16 @@ class GymReservationCloud:
                 for i, day in enumerate(available_days[:10]):  # Show first 10 days
                     logger.info(f"  Retry Day {i}: {day.text}")
                 
-                # Look for the specific target day
+                # Look for the specific target day (try both single digit and zero-padded)
                 target_day_element = None
+                target_day_str = str(target_day)
+                target_day_padded = f"{target_day:02d}"  # Zero-padded (e.g., "08")
+                
                 for day_element in available_days:
-                    if day_element.text.strip() == str(target_day):
+                    day_text = day_element.text.strip()
+                    if day_text == target_day_str or day_text == target_day_padded:
                         target_day_element = day_element
+                        logger.info(f"Retry: Found target day: '{day_text}' matches target {target_day}")
                         break
                 
                 if target_day_element:
