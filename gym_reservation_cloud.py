@@ -70,23 +70,36 @@ class GymReservationCloud:
             chrome_options = ChromeOptions()
             
             # Essential options for cloud deployment
-            chrome_options.add_argument("--headless")
+            # Only use headless mode in cloud/CI environments
+            if os.getenv('GITHUB_ACTIONS') == 'true' or os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RENDER'):
+                chrome_options.add_argument("--headless")
+            else:
+                logger.info("Running in local mode - browser window will be visible for debugging")
+            # Core stability options
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-extensions")
-            chrome_options.add_argument("--disable-plugins")
-            chrome_options.add_argument("--disable-images")
-            # Removed --disable-javascript as it may break the website
-            chrome_options.add_argument("--disable-background-timer-throttling")
-            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--window-size=1920,1080")
+            
+            # Cloud-specific optimizations (only in production)
+            if os.getenv('GITHUB_ACTIONS') == 'true' or os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RENDER'):
+                chrome_options.add_argument("--disable-gpu")
+                chrome_options.add_argument("--disable-extensions")
+                chrome_options.add_argument("--disable-plugins")
+                chrome_options.add_argument("--disable-images")
+                chrome_options.add_argument("--disable-background-timer-throttling")
+                chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+                chrome_options.add_argument("--disable-renderer-backgrounding")
+            
+            # Anti-detection options
             chrome_options.add_argument("--disable-features=TranslateUI")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
+            
+            # Set Chrome binary path for macOS
+            if os.path.exists("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"):
+                chrome_options.binary_location = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
             
             # Additional stability options
             chrome_options.add_argument("--disable-web-security")
@@ -113,9 +126,29 @@ class GymReservationCloud:
                         logger.warning(f"Chrome driver failed at {path}: {e}")
                         continue
             
-            # Try WebDriverManager as fallback
+            # Try WebDriverManager as fallback with error handling
             try:
                 chrome_driver_path = ChromeDriverManager().install()
+                # Fix the path if WebDriverManager returns wrong file
+                if 'THIRD_PARTY_NOTICES' in chrome_driver_path:
+                    import glob
+                    # Find the actual chromedriver binary in the same directory
+                    driver_dir = os.path.dirname(chrome_driver_path)
+                    possible_drivers = glob.glob(os.path.join(driver_dir, '**/chromedriver*'), recursive=True)
+                    actual_driver = None
+                    for driver_path in possible_drivers:
+                        if os.path.isfile(driver_path) and 'chromedriver' in os.path.basename(driver_path) and 'THIRD_PARTY' not in driver_path:
+                            actual_driver = driver_path
+                            break
+                    if actual_driver and os.path.exists(actual_driver):
+                        chrome_driver_path = actual_driver
+                        logger.info(f"Fixed WebDriverManager path to: {chrome_driver_path}")
+                        # Fix permissions if needed
+                        import stat
+                        if not os.access(chrome_driver_path, os.X_OK):
+                            os.chmod(chrome_driver_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                            logger.info("Fixed chromedriver permissions")
+                
                 service = ChromeService(chrome_driver_path)
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 logger.info(f"Chrome driver initialized using WebDriverManager: {chrome_driver_path}")
