@@ -414,39 +414,43 @@ class GymReservationCloud:
             raise
 
     def get_target_date(self):
-        """Calculate the target reservation date (next day for night-before runs)"""
-        # Use Mexico City timezone for accurate date calculation
+        """Calculate the target reservation date for the FOLLOWING week's gym day.
+
+        Requirements:
+        - When running Sunday/Tuesday/Thursday at ~23:30, target is the next day (Mon/Wed/Fri) PLUS 7 days.
+        - When running at 00:00–06:00 on Mon/Wed/Fri (post-midnight), target is the SAME weekday plus 7 days.
+        - For ad-hoc daytime runs, target is next week's same weekday.
+        """
         mexico_tz = pytz.timezone('America/Mexico_City')
         now = datetime.now(mexico_tz)
-        current_weekday = now.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
+
+        current_weekday = now.weekday()  # Monday=0, ... Sunday=6
         current_hour = now.hour
-        
-        # Determine target date based on when we're running
-        if current_hour >= 23 or current_hour < 6:  # Night before or early morning
-            # Running at night (11:30 PM) or early morning - target is next day
-            target_date = now + timedelta(days=1)
-            logger.info(f"Night/early morning run - targeting next day: {target_date.strftime('%A')}")
+
+        # Determine the base day we want to reserve FOR (this week or next) before adding +7
+        if current_hour >= 23:
+            # Night before: base is tomorrow (e.g., Sun->Mon, Tue->Wed, Thu->Fri)
+            base_day = now + timedelta(days=1)
+        elif 0 <= current_hour < 6:
+            # Early morning of gym day: base is today (e.g., Mon/Wed/Fri)
+            base_day = now
         else:
-            # Running during day - target is next week's same day
-            days_ahead = 7
-            target_date = now + timedelta(days=days_ahead)
-            logger.info(f"Day run - targeting next week: {target_date.strftime('%A')}")
-        
-        # Ensure we're targeting a gym day (Monday=0, Wednesday=2, Friday=4)
-        target_weekday = target_date.weekday()
-        if target_weekday not in [0, 2, 4]:  # Not Mon/Wed/Fri
-            # Find the next gym day
-            days_to_add = 0
-            while (target_date + timedelta(days=days_to_add)).weekday() not in [0, 2, 4]:
-                days_to_add += 1
-            target_date = target_date + timedelta(days=days_to_add)
-            logger.info(f"Adjusted to next gym day: {target_date.strftime('%A')}")
-        
-        # Log the target date for debugging
-        logger.info(f"Current day (Mexico City): {now.strftime('%A')} (weekday {current_weekday})")
+            # Daytime/manual run: base is today (we'll roll to next gym day if needed)
+            base_day = now
+
+        # Find the next gym day relative to base_day (including today if it is a gym day)
+        gym_days = [0, 2, 4]  # Mon, Wed, Fri
+        days_until_next_gym = min(((d - base_day.weekday()) % 7) for d in gym_days)
+        next_gym_day = base_day + timedelta(days=days_until_next_gym)
+
+        # Target is the same weekday in the FOLLOWING week
+        target_date = next_gym_day + timedelta(days=7)
+
         logger.info(f"Current time (Mexico City): {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        logger.info(f"Target date: {target_date.strftime('%Y-%m-%d')} ({target_date.strftime('%A')})")
-        
+        logger.info(f"Computed base day: {base_day.strftime('%Y-%m-%d (%A)')}")
+        logger.info(f"Next gym day (this week): {next_gym_day.strftime('%Y-%m-%d (%A)')}")
+        logger.info(f"Target reservation date (following week): {target_date.strftime('%Y-%m-%d (%A)')}")
+
         return target_date
 
     def select_calendar_day(self):
@@ -616,43 +620,19 @@ class GymReservationCloud:
             return False
 
     def select_calendar_day_with_retry(self):
-        """Select calendar day with precise date calculation for next occurrence of same weekday"""
+        """Retry selecting the calendar day using the same target date logic."""
         try:
-            # Calculate target date - next occurrence of the same weekday (7 days ahead)
-            now = datetime.now(pytz.timezone('America/Mexico_City'))
-            current_weekday = now.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
-            
-            # Calculate days until next occurrence of the same weekday
-            days_ahead = 7  # Always 7 days ahead for same weekday
-            if current_weekday == 0:  # Monday
-                days_ahead = 7  # Next Monday
-            elif current_weekday == 2:  # Wednesday  
-                days_ahead = 7  # Next Wednesday
-            elif current_weekday == 4:  # Friday
-                days_ahead = 7  # Next Friday
-            else:
-                # For other days, find the next occurrence of Mon/Wed/Fri
-                if current_weekday == 6:  # Sunday (6) -> Monday (0)
-                    days_ahead = 1
-                elif current_weekday == 1:  # Tuesday -> Wednesday
-                    days_ahead = 1
-                elif current_weekday == 3:  # Thursday -> Friday
-                    days_ahead = 1
-                elif current_weekday == 5:  # Saturday -> Monday
-                    days_ahead = 2
-                else:  # Default to 7 days for same weekday
-                    days_ahead = 7
-            
-            target_date = now + timedelta(days=days_ahead)
+            target_date = self.get_target_date()
             target_day = target_date.day
             target_month = target_date.month
             target_year = target_date.year
-            
-            # Get current month/year
+
+            # Current month/year (Mexico City)
+            now = datetime.now(pytz.timezone('America/Mexico_City'))
             current_month = now.month
             current_year = now.year
-            
-            logger.info(f"Retry: Looking for day {target_day} in {target_date.strftime('%B %Y')} (calculated with {days_ahead} days ahead for next {target_date.strftime('%A')})")
+
+            logger.info(f"Retry: Looking for day {target_day} in {target_date.strftime('%B %Y')} (following week's {target_date.strftime('%A')})")
             
             # Wait for calendar to load
             time.sleep(1)  # Reduced from 2
@@ -1189,43 +1169,47 @@ def run_cloud_reservation():
         
         send_email_notification(subject, body, success=not no_success)
 
-def wait_for_exact_reservation_time(target_date):
-    """Wait until exactly 7 days before target date at 00:00:00"""
+def wait_for_exact_reservation_time(target_date, holdoff_seconds=None):
+    """Wait until 7 days before target date, then hold until 00:01+ buffer.
+
+    By default, waits until 00:01:05 Mexico City time to avoid race conditions
+    at midnight. Override with RESERVATION_HOLDOFF_SECONDS env var.
+    """
     mexico_tz = pytz.timezone('America/Mexico_City')
-    
+
+    # Resolve holdoff seconds (env override -> parameter default 65s)
+    if holdoff_seconds is None:
+        try:
+            holdoff_seconds = int(os.getenv('RESERVATION_HOLDOFF_SECONDS', '65'))
+        except Exception:
+            holdoff_seconds = 65
+
     # Ensure target_date is timezone-aware
     if target_date.tzinfo is None:
         target_date = mexico_tz.localize(target_date)
-    
+
     # Calculate the exact moment reservations become available (7 days before at midnight)
     reservation_opens = target_date - timedelta(days=7)
     reservation_opens = reservation_opens.replace(hour=0, minute=0, second=0, microsecond=0)
-    
+    desired_start = reservation_opens + timedelta(seconds=holdoff_seconds)
+
     logger.info(f"Target reservation date: {target_date.strftime('%A, %B %d, %Y')}")
-    logger.info(f"Reservations open at: {reservation_opens.strftime('%A, %B %d, %Y at %H:%M:%S %Z')}")
-    
+    logger.info(f"Reservations open at: {reservation_opens.strftime('%A, %B %d, %Y at %H:%M:%S %Z')} (holding {holdoff_seconds}s -> start at {desired_start.strftime('%H:%M:%S')})")
+
     current_time = datetime.now(mexico_tz)
-    
-    if current_time < reservation_opens:
-        # We need to wait
-        wait_seconds = (reservation_opens - current_time).total_seconds()
+
+    # If we are before midnight opening, sleep until after holdoff
+    if current_time < desired_start:
+        wait_seconds = (desired_start - current_time).total_seconds()
         wait_minutes = wait_seconds / 60
-        
-        logger.info(f"⏰ Need to wait {wait_minutes:.1f} minutes ({wait_seconds:.1f} seconds) until reservations open...")
-        logger.info(f"Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        logger.info(f"Will start at: {reservation_opens.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        
-        # Wait until the exact moment (but add 1 second buffer to be safe)
-        time.sleep(wait_seconds + 1)
-        
-        # Double-check timing after wait
+        logger.info(f"⏰ Waiting {wait_minutes:.1f} minutes ({wait_seconds:.1f} seconds) until {desired_start.strftime('%Y-%m-%d %H:%M:%S %Z')}...")
+        time.sleep(wait_seconds)
         final_time = datetime.now(mexico_tz)
-        logger.info(f"🎯 Starting reservation at: {final_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        
+        logger.info(f"🎯 Proceeding at: {final_time.strftime('%Y-%m-%d %H:%M:%S %Z')} (after holdoff)")
     else:
-        time_diff = (current_time - reservation_opens).total_seconds()
-        logger.info(f"✅ Reservation window opened {time_diff:.1f} seconds ago at {reservation_opens.strftime('%H:%M:%S')}")
-        logger.info(f"Current time: {current_time.strftime('%H:%M:%S %Z')} - Ready to proceed!")
+        # We are already past desired start time – proceed immediately
+        time_diff = (current_time - desired_start).total_seconds()
+        logger.info(f"✅ Already {time_diff:.1f}s past desired start ({desired_start.strftime('%H:%M:%S')}). Proceeding now.")
 
 def run_cloud_reservation_with_retry():
     """Function to run cloud reservation with precise timing and retry logic"""
@@ -1235,30 +1219,17 @@ def run_cloud_reservation_with_retry():
     logger.info(f"GitHub Action started at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     
     try:
-        # First, determine the target date using the same logic as in the class
-        mexico_tz = pytz.timezone('America/Mexico_City')
-        now = datetime.now(mexico_tz)
-        current_hour = now.hour
-        
-        # Determine target date based on when we're running
-        if current_hour >= 23 or current_hour < 6:  # Night before or early morning
-            # Running at night (11:30 PM) or early morning - target is next day
-            target_date = now + timedelta(days=1)
-        else:
-            # Running during day - target is next week's same day
-            target_date = now + timedelta(days=7)
-        
-        # Ensure we're targeting a gym day (Monday=0, Wednesday=2, Friday=4)
-        target_weekday = target_date.weekday()
-        if target_weekday not in [0, 2, 4]:  # Not Mon/Wed/Fri
-            # Find the next gym day
-            days_to_add = 0
-            while (target_date + timedelta(days=days_to_add)).weekday() not in [0, 2, 4]:
-                days_to_add += 1
-            target_date = target_date + timedelta(days=days_to_add)
-        
-        # Wait for the exact moment reservations become available
-        wait_for_exact_reservation_time(target_date)
+        # Determine the target date using the class logic (FOLLOWING week's gym day)
+        temp_reservation = GymReservationCloud()
+        target_date = temp_reservation.get_target_date()
+
+        # Wait for the exact moment reservations become available, then hold past 00:01
+        holdoff_seconds = None
+        try:
+            holdoff_seconds = int(os.getenv('RESERVATION_HOLDOFF_SECONDS', '65'))
+        except Exception:
+            holdoff_seconds = 65
+        wait_for_exact_reservation_time(target_date, holdoff_seconds)
         
         # Now run the actual reservation
         run_cloud_reservation()
