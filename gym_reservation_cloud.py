@@ -1219,16 +1219,28 @@ def run_cloud_reservation_with_retry():
     logger.info(f"GitHub Action started at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     
     try:
-        # Determine the target date using the class logic (FOLLOWING week's gym day)
-        temp_reservation = GymReservationCloud()
-        target_date = temp_reservation.get_target_date()
+        # Determine the target date (FOLLOWING week's gym day) without requiring credentials
+        mexico_tz_local = pytz.timezone('America/Mexico_City')
+        now_local = datetime.now(mexico_tz_local)
+
+        # Compute base day (night-before -> tomorrow; early morning -> today; daytime -> today)
+        if now_local.hour >= 23:
+            base_day = now_local + timedelta(days=1)
+        elif 0 <= now_local.hour < 6:
+            base_day = now_local
+        else:
+            base_day = now_local
+
+        # Next gym day relative to base_day (Mon=0, Wed=2, Fri=4)
+        gym_days = [0, 2, 4]
+        days_until_next_gym = min(((d - base_day.weekday()) % 7) for d in gym_days)
+        next_gym_day = base_day + timedelta(days=days_until_next_gym)
+
+        # Target is the same weekday in the FOLLOWING week
+        target_date = next_gym_day + timedelta(days=7)
 
         # Wait for the exact moment reservations become available, then hold past 00:01
-        holdoff_seconds = None
-        try:
-            holdoff_seconds = int(os.getenv('RESERVATION_HOLDOFF_SECONDS', '65'))
-        except Exception:
-            holdoff_seconds = 65
+        holdoff_seconds = int(os.getenv('RESERVATION_HOLDOFF_SECONDS', '65')) if os.getenv('RESERVATION_HOLDOFF_SECONDS') else 65
         wait_for_exact_reservation_time(target_date, holdoff_seconds)
         
         # Now run the actual reservation
